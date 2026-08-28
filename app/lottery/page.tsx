@@ -458,7 +458,7 @@ export default function LotteryPage() {
               )}
 
               <p className="mt-3 rounded-xl bg-[#FFF6E9] px-3 py-2 text-xs text-[#a8785e]">
-                💡 打完名單，記得要按下方「更新」鍵，才會儲存喔！
+                💡 新增清單時，打完名單，記得要按下方「更新」鍵，才會儲存喔！
               </p>
             </div>
 
