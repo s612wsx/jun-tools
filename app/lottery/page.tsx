@@ -584,7 +584,7 @@ export default function LotteryPage() {
                   onTransitionEnd={handleTransitionEnd}
                   style={{
                     transform: `rotate(${rotation}deg)`,
-                    transformOrigin: "200px 200px",
+                    transformOrigin: "50% 50%",
                     transition: spinning
                       ? "transform 4.4s cubic-bezier(0.17, 0.62, 0.2, 1)"
                       : "none",
