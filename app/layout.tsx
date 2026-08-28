@@ -15,6 +15,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Jun的小工具箱",
   description: "收集好玩又實用的小工具：抽獎轉盤、番茄鐘、好運抽籤",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
