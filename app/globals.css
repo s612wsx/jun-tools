@@ -24,3 +24,34 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Soft mesh-gradient background: layered, blurred color pools over a warm
+   cream base, kept to one tonal family (blush / peach / cream) so it reads
+   as a single cozy palette instead of a multi-hue rainbow, plus a faint
+   edge vignette for depth. */
+.mesh-bg {
+  background-color: #fdf6ec;
+  background-image:
+    radial-gradient(at 14% 18%, rgba(255, 205, 200, 0.4) 0px, transparent 52%),
+    radial-gradient(at 84% 10%, rgba(255, 221, 176, 0.42) 0px, transparent 52%),
+    radial-gradient(at 90% 80%, rgba(255, 196, 186, 0.32) 0px, transparent 55%),
+    radial-gradient(at 8% 85%, rgba(240, 210, 210, 0.28) 0px, transparent 55%),
+    radial-gradient(at 50% 100%, rgba(255, 214, 210, 0.25) 0px, transparent 60%),
+    radial-gradient(at 50% 50%, transparent 60%, rgba(122, 74, 58, 0.045) 100%);
+}
+
+/* Faint film-grain texture layered with mix-blend-mode over .mesh-bg to
+   avoid the "flat vector" look of a plain gradient. */
+.grain-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  mix-blend-mode: overlay;
+}
+
+/* Whisper-quiet repeating pattern of cute doodle icons (star, heart,
+   balloon, moon, ribbon), scattered like a toolbox of little joys. Meant
+   to sit at low opacity over .mesh-bg for texture without visual noise. */
+.pattern-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3Cpath id='s' d='M0,-14 L4,-4 L14,0 L4,4 L0,14 L-4,4 L-14,0 L-4,-4 Z'/%3E%3Cpath id='h' d='M0,6 C-1,-1 -9,-4 -9,3 C-9,9 -4,12 0,18 C4,12 9,9 9,3 C9,-4 1,-1 0,6 Z'/%3E%3Cg id='b'%3E%3Ccircle cx='0' cy='-8' r='10'/%3E%3Cpath d='M-3,2 L3,2 L0,6 Z M0,6 Q3,12 0,18'/%3E%3C/g%3E%3Cpath id='m' d='M8,-14 C-3,-13 -11,-6 -11,0 C-11,6 -3,13 8,14 C1,10 -3,5 -3,0 C-3,-5 1,-10 8,-14 Z'/%3E%3Cg id='r'%3E%3Cpath d='M-2,0 L-15,-9 L-15,9 Z M2,0 L15,-9 L15,9 Z'/%3E%3Ccircle cx='0' cy='0' r='3'/%3E%3C/g%3E%3C/defs%3E%3Cg fill='none' stroke='%23D9A98A' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cuse href='%23s' transform='translate(55,50) rotate(-10) scale(0.9)'/%3E%3Cuse href='%23h' transform='translate(205,40) rotate(8) scale(0.8)'/%3E%3Cuse href='%23b' transform='translate(260,140) rotate(-6) scale(0.85)'/%3E%3Cuse href='%23m' transform='translate(40,155) rotate(12) scale(0.8)'/%3E%3Cuse href='%23r' transform='translate(150,195) scale(0.9)'/%3E%3Cuse href='%23s' transform='translate(250,250) rotate(15) scale(0.7)'/%3E%3Cuse href='%23h' transform='translate(90,260) rotate(-12) scale(0.7)'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 260px 260px;
+}

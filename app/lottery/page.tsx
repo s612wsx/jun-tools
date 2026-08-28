@@ -1,0 +1,412 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useMemo, useRef, useState } from "react";
+
+const PALETTE = [
+  "#FFD1DC", // 粉紅
+  "#FFE8B3", // 奶油黃
+  "#C8F4DE", // 薄荷綠
+  "#BEE3F8", // 天空藍
+  "#E3D1FF", // 薰衣草紫
+  "#FFCBA4", // 蜜桃橘
+  "#B5F1E0", // 海洋綠
+  "#FDCFE8", // 泡泡糖粉
+];
+
+const DEFAULT_NAMES = ["水餃", "水餃", "Pizza","水餃", "Pizza","水餃", "Pizza","水餃", "Pizza", "果汁"];
+
+type Winner = { name: string; index: number };
+
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeSlice(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
+  const p1 = polarToCartesian(cx, cy, r, startAngle);
+  const p2 = polarToCartesian(cx, cy, r, endAngle);
+  const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${p1.x} ${p1.y} A ${r} ${r} 0 ${largeArc} 1 ${p2.x} ${p2.y} Z`;
+}
+
+const RIM_DOTS = Array.from({ length: 20 }, (_, i) => (360 / 20) * i);
+const CONFETTI_COLORS = PALETTE;
+
+type ConfettiPiece = {
+  left: number;
+  delay: number;
+  duration: number;
+  color: string;
+  rotate: number;
+};
+
+function makeConfetti(): ConfettiPiece[] {
+  return Array.from({ length: 16 }, (_, i) => ({
+    left: Math.random() * 100,
+    delay: Math.random() * 0.4,
+    duration: 1.6 + Math.random() * 1,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    rotate: Math.random() * 360,
+  }));
+}
+
+export default function LotteryPage() {
+  const [rawInput, setRawInput] = useState(DEFAULT_NAMES.join("\n"));
+  const [removeAfterWin, setRemoveAfterWin] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const [winner, setWinner] = useState<Winner | null>(null);
+  const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
+
+  const winnerIndexRef = useRef<number | null>(null);
+  const namesSnapshotRef = useRef<string[]>([]);
+
+  const names = useMemo(
+    () =>
+      rawInput
+        .split(/[\n,，、]/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [rawInput],
+  );
+
+  const n = names.length;
+  const seg = n > 0 ? 360 / n : 360;
+  const canSpin = n >= 2 && !spinning;
+
+  const fontSize = n <= 4 ? 22 : n <= 6 ? 18 : n <= 10 ? 15 : 12;
+
+  const removeNameAt = (index: number) => {
+    const next = names.filter((_, i) => i !== index);
+    setRawInput(next.join("\n"));
+  };
+
+  const spin = useCallback(() => {
+    if (n < 2 || spinning) return;
+
+    const idx = Math.floor(Math.random() * n);
+    winnerIndexRef.current = idx;
+    namesSnapshotRef.current = names;
+
+    const theta = idx * seg + seg / 2;
+    const jitter = (Math.random() - 0.5) * seg * 0.6;
+    const target = (360 - theta + jitter + 360) % 360;
+    const current = rotation % 360;
+    const extraSpins = 6 + Math.floor(Math.random() * 3);
+    const delta = ((target - current + 360) % 360) + extraSpins * 360;
+
+    setWinner(null);
+    setSpinning(true);
+    setRotation((r) => r + delta);
+  }, [n, spinning, names, seg, rotation]);
+
+  const handleTransitionEnd = () => {
+    if (!spinning) return;
+    setSpinning(false);
+    const idx = winnerIndexRef.current;
+    const snapshot = namesSnapshotRef.current;
+    if (idx !== null && snapshot[idx] !== undefined) {
+      setWinner({ name: snapshot[idx], index: idx });
+      setConfetti(makeConfetti());
+      if (removeAfterWin) {
+        const next = snapshot.filter((_, i) => i !== idx);
+        setRawInput(next.join("\n"));
+      }
+    }
+  };
+
+  return (
+    <div className="mesh-bg min-h-dvh w-full px-4 py-8 sm:py-12">
+      <div
+        aria-hidden
+        className="grain-overlay pointer-events-none fixed inset-0 z-0 opacity-[0.05]"
+      />
+      <div className="relative z-10 mx-auto max-w-5xl">
+        <div className="mb-4">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-sm font-medium text-[#a8785e] hover:text-[#7a4a3a] transition"
+          >
+            ← 回首頁
+          </Link>
+        </div>
+
+        <header className="mb-8 text-center">
+          <h1 className="flex items-center justify-center gap-2 text-3xl font-extrabold text-[#7a4a3a] sm:text-4xl">
+            <span>🎡</span> 妹妹吃吃喝喝抽獎機 <span>🎈</span>
+          </h1>
+          <p className="mt-2 text-[#a8785e]">輸入這次的名單，轉一轉，看看幸運食物是誰！</p>
+        </header>
+
+        <div className="grid items-start gap-8 lg:grid-cols-[340px_1fr]">
+          {/* 名單輸入區 */}
+          <section className="rounded-3xl border border-white bg-white/80 p-6 shadow-[0_10px_30px_rgba(190,150,120,0.15)] backdrop-blur">
+            <label className="mb-2 block text-sm font-bold text-[#7a4a3a]">
+              本次名單（一行一位，或用逗號分隔）
+            </label>
+            <textarea
+              value={rawInput}
+              onChange={(e) => setRawInput(e.target.value)}
+              disabled={spinning}
+              rows={6}
+              placeholder={"小明\n小華\n小美"}
+              className="w-full resize-none rounded-2xl border-2 border-[#FFE1EC] bg-[#FFFBF6] p-3 text-[#5b4636] placeholder:text-[#c9ab9a] outline-none focus:border-[#FFB3C6] disabled:opacity-60"
+            />
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-medium text-[#a8785e]">共 {n} 位</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={spinning}
+                  onClick={() => setRawInput(DEFAULT_NAMES.join("\n"))}
+                  className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-semibold text-[#7a5aa8] transition hover:brightness-105 disabled:opacity-60"
+                >
+                  還原範例
+                </button>
+                <button
+                  type="button"
+                  disabled={spinning}
+                  onClick={() => setRawInput("")}
+                  className="rounded-full bg-[#FFE1E1] px-3 py-1 text-xs font-semibold text-[#c9635f] transition hover:brightness-105 disabled:opacity-60"
+                >
+                  清空
+                </button>
+              </div>
+            </div>
+
+            {n < 2 && (
+              <p className="mt-2 text-xs font-medium text-[#e08a7d]">
+                請至少輸入 2 位名單才能開始抽獎哦！
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {names.map((name, i) => (
+                <span
+                  key={`${name}-${i}`}
+                  className="inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-semibold text-[#5b4636] shadow-sm"
+                  style={{ backgroundColor: PALETTE[i % PALETTE.length] }}
+                >
+                  {name}
+                  <button
+                    type="button"
+                    disabled={spinning}
+                    onClick={() => removeNameAt(i)}
+                    aria-label={`移除 ${name}`}
+                    className="grid h-4 w-4 place-items-center rounded-full bg-white/70 text-[10px] leading-none text-[#5b4636] transition hover:bg-white disabled:opacity-60"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <label className="mt-5 flex cursor-pointer items-center gap-2 text-sm font-medium text-[#7a4a3a]">
+              <input
+                type="checkbox"
+                checked={removeAfterWin}
+                onChange={(e) => setRemoveAfterWin(e.target.checked)}
+                className="h-4 w-4 accent-[#FF9AAE]"
+              />
+              抽中後從名單移除（不重複抽獎）
+            </label>
+          </section>
+
+          {/* 轉盤區 */}
+          <section className="flex flex-col items-center">
+            <div className="relative aspect-square w-full max-w-[420px]">
+              {/* 外圈裝飾（固定不轉） */}
+              <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 400 400">
+                <defs>
+                  <linearGradient id="rimGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#FFC6D9" />
+                    <stop offset="50%" stopColor="#FFE3B0" />
+                    <stop offset="100%" stopColor="#C9E7FF" />
+                  </linearGradient>
+                </defs>
+                <circle
+                  cx="200"
+                  cy="200"
+                  r="192"
+                  fill="none"
+                  stroke="url(#rimGradient)"
+                  strokeWidth="18"
+                />
+                {RIM_DOTS.map((angle, i) => {
+                  const p = polarToCartesian(200, 200, 183, angle);
+                  return (
+                    <circle
+                      key={i}
+                      cx={p.x}
+                      cy={p.y}
+                      r="6"
+                      fill="#FFFBEA"
+                      stroke="#FFD97D"
+                      strokeWidth="1.5"
+                    />
+                  );
+                })}
+              </svg>
+
+              {/* 轉動的色塊層 */}
+              <div className="absolute inset-[16px] overflow-visible rounded-full drop-shadow-[0_8px_16px_rgba(190,150,120,0.25)]">
+                <svg
+                  viewBox="0 0 400 400"
+                  className="h-full w-full"
+                  onTransitionEnd={handleTransitionEnd}
+                  style={{
+                    transform: `rotate(${rotation}deg)`,
+                    transformOrigin: "200px 200px",
+                    transition: spinning
+                      ? "transform 4.4s cubic-bezier(0.17, 0.62, 0.2, 1)"
+                      : "none",
+                  }}
+                >
+                  {n === 0 ? (
+                    <circle cx="200" cy="200" r="178" fill="#FFF3E9" />
+                  ) : (
+                    names.map((name, i) => {
+                      const start = i * seg;
+                      const end = start + seg;
+                      const mid = start + seg / 2;
+                      const labelRadius = n <= 3 ? 90 : 118;
+                      return (
+                        <g key={`${name}-${i}`}>
+                          <path
+                            d={describeSlice(200, 200, 178, start, end)}
+                            fill={PALETTE[i % PALETTE.length]}
+                            stroke="#FFFFFF"
+                            strokeWidth="3"
+                          />
+                          <g transform={`rotate(${mid} 200 200)`}>
+                            <text
+                              x="200"
+                              y={200 - labelRadius}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              fontSize={fontSize}
+                              fontWeight={700}
+                              fill="#6b4a3a"
+                            >
+                              {name}
+                            </text>
+                          </g>
+                        </g>
+                      );
+                    })
+                  )}
+                </svg>
+              </div>
+
+              {/* 指針 */}
+              <div className="absolute left-1/2 -top-3 z-20 -translate-x-1/2 drop-shadow-md">
+                <svg width="42" height="48" viewBox="0 0 40 46">
+                  <path
+                    d="M20 44C20 44 4 26 4 16C4 8.27 10.27 2 18 2H22C29.73 2 36 8.27 36 16C36 26 20 44 20 44Z"
+                    fill="#FF9AAE"
+                    stroke="#FFFFFF"
+                    strokeWidth="3"
+                  />
+                  <circle cx="20" cy="17" r="6.5" fill="#FFFFFF" />
+                </svg>
+              </div>
+
+              {/* 中心按鈕 */}
+              <button
+                type="button"
+                onClick={spin}
+                disabled={!canSpin}
+                className="absolute left-1/2 top-1/2 z-10 grid aspect-square w-[30%] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white bg-gradient-to-br from-[#FFD3E0] to-[#FFB199] text-lg font-extrabold text-[#7a4a3a] shadow-[0_6px_14px_rgba(190,120,110,0.35)] transition hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 sm:text-xl"
+              >
+                {spinning ? "轉動中…" : "抽獎"}
+              </button>
+            </div>
+
+            <p className="mt-6 text-sm font-medium text-[#a8785e]">
+              {n < 2 ? "先在左邊輸入名單吧！" : "點擊中間按鈕開始抽食物 🎉"}
+            </p>
+          </section>
+        </div>
+      </div>
+
+      {/* 中獎彈窗 */}
+      {winner && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#7a4a3a]/30 p-4 backdrop-blur-sm"
+          onClick={() => setWinner(null)}
+        >
+          <div
+            className="lottery-pop relative w-full max-w-sm overflow-hidden rounded-3xl bg-gradient-to-b from-white to-[#FFF6E9] px-8 py-10 text-center shadow-2xl sm:px-12 sm:py-12"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {confetti.map((c, i) => (
+              <span
+                key={i}
+                className="lottery-confetti"
+                style={{
+                  left: `${c.left}%`,
+                  backgroundColor: c.color,
+                  animationDelay: `${c.delay}s`,
+                  animationDuration: `${c.duration}s`,
+                  transform: `rotate(${c.rotate}deg)`,
+                }}
+              />
+            ))}
+            <div className="mb-2 text-5xl">🎉</div>
+            <p className="mb-1 text-sm font-bold text-[#c98a5e]">恭喜中獎</p>
+            <p className="mb-6 break-words text-3xl font-extrabold text-[#7a4a3a] sm:text-4xl">
+              {winner.name}
+            </p>
+            <div className="flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setWinner(null)}
+                className="rounded-full bg-[#FFD3E0] px-5 py-2 font-semibold text-[#7a4a3a] shadow transition hover:brightness-105 active:scale-95"
+              >
+                關閉
+              </button>
+              <button
+                type="button"
+                disabled={names.length < 2}
+                onClick={() => {
+                  setWinner(null);
+                  spin();
+                }}
+                className="rounded-full bg-gradient-to-r from-[#B5EAD7] to-[#BEE3F8] px-5 py-2 font-semibold text-[#3a6b5c] shadow transition hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                再抽一次
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes lottery-pop-in {
+          0% { transform: scale(0.7); opacity: 0; }
+          70% { transform: scale(1.05); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .lottery-pop {
+          animation: lottery-pop-in 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+        }
+        @keyframes lottery-confetti-fall {
+          0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(220px) rotate(360deg); opacity: 0; }
+        }
+        .lottery-confetti {
+          position: absolute;
+          top: -10px;
+          width: 8px;
+          height: 8px;
+          border-radius: 2px;
+          animation-name: lottery-confetti-fall;
+          animation-timing-function: ease-in;
+          animation-fill-mode: forwards;
+        }
+      `}</style>
+    </div>
+  );
+}
