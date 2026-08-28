@@ -14,7 +14,7 @@ const PALETTE = [
   "#FDCFE8", // 泡泡糖粉
 ];
 
-const DEFAULT_NAMES = ["水餃", "水餃", "Pizza","水餃", "Pizza","水餃", "Pizza","水餃", "Pizza", "果汁"];
+const DEFAULT_NAMES = ["水餃", "水餃", "披薩","水餃", "披薩","水餃", "披薩","水餃", "披薩", "果汁"];
 
 type Winner = { name: string; index: number };
 
