@@ -91,6 +91,20 @@ function playSuccessChime(ctx: AudioContext) {
   });
 }
 
+// 行動瀏覽器（尤其 iOS Safari）要求語音合成必須在使用者手勢中同步呼叫過一次
+// 才會「解鎖」，之後才能在計時器等非同步流程裡正常發聲。這裡在點擊當下用一句
+// 無聲的句子預先解鎖，讓轉盤停止後的 speakWinner() 呼叫不會被手機瀏覽器擋掉。
+function warmUpSpeech() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    const warmUp = new SpeechSynthesisUtterance(" ");
+    warmUp.volume = 0;
+    window.speechSynthesis.speak(warmUp);
+  } catch {
+    // 不支援語音合成時，安靜地忽略。
+  }
+}
+
 function speakWinner(name: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   try {
@@ -170,6 +184,8 @@ export default function LotteryPage() {
 
   const spin = useCallback(() => {
     if (n < 2 || spinning) return;
+
+    if (soundOn) warmUpSpeech();
 
     const idx = Math.floor(Math.random() * n);
     winnerIndexRef.current = idx;
