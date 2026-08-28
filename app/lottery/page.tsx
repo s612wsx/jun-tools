@@ -55,23 +55,23 @@ const SPIN_DURATION_MS = 4400;
 const TICK_COUNT = 20;
 
 // 音效與語音：讓還不識字的孩子也能靠聲音知道結果。
-function playTick(ctx: AudioContext) {
-  const duration = 0.03;
-  const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * duration));
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) {
-    data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
-  }
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  const filter = ctx.createBiquadFilter();
-  filter.type = "highpass";
-  filter.frequency.value = 2200;
+// 轉動的滴答聲用柔和的正弦波「叩」聲取代原本高頻雜訊喀喀聲（比較刺耳），
+// 音高會隨著 progress（0→1，轉盤從快到慢）稍微往下降，並加一點點隨機微調，
+// 聽起來更像溫馨的木琴敲擊聲，而不是機械喀嗒聲。
+function playTick(ctx: AudioContext, progress = 0) {
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  gain.gain.value = 0.18;
-  source.connect(filter).connect(gain).connect(ctx.destination);
-  source.start();
+  osc.type = "sine";
+  const baseFreq = 780 - progress * 160;
+  const wobble = (Math.random() - 0.5) * 40;
+  osc.frequency.value = baseFreq + wobble;
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.13, now + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.11);
 }
 
 function playSuccessChime(ctx: AudioContext) {
@@ -361,7 +361,7 @@ export default function LotteryPage() {
         tickTimeoutIdsRef.current = Array.from({ length: TICK_COUNT }, (_, i) => {
           const progress = i / (TICK_COUNT - 1);
           const t = SPIN_DURATION_MS * progress * progress * 0.97;
-          return setTimeout(() => playTick(ctx), t);
+          return setTimeout(() => playTick(ctx, progress), t);
         });
       }
     }
