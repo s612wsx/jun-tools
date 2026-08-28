@@ -91,15 +91,43 @@ function playSuccessChime(ctx: AudioContext) {
   });
 }
 
+// 每支手機/瀏覽器安裝的語音包都不一樣，getVoices() 在頁面剛載入時常常是空的
+// （要等瀏覽器非同步載入完成、觸發 voiceschanged 事件後才會有內容）。這裡把
+// 讀到的清單快取起來，避免每次都在語音還沒就緒時挑到「找不到就沒設定 voice」
+// 導致直接退回系統預設語音（很多手機的系統預設是英文或別的語系，念中文名字
+// 就會發音跑掉、甚至只念出一部分）。
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+function refreshVoiceCache() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const list = window.speechSynthesis.getVoices();
+  if (list.length > 0) cachedVoices = list;
+}
+
+// 不同裝置上「哪個聲音排第一個」完全不一定，直接抓 startsWith("zh") 的第一筆
+// 會導致有人抽到台灣女聲、有人抽到中國大陸男聲之類的落差。這裡照優先順序找：
+// 先精準比對 zh-TW，找不到再退而求其次找繁體/任何中文語音。
+function pickZhVoice(): SpeechSynthesisVoice | undefined {
+  refreshVoiceCache();
+  const lower = (v: SpeechSynthesisVoice) => v.lang.toLowerCase();
+  return (
+    cachedVoices.find((v) => lower(v) === "zh-tw") ??
+    cachedVoices.find((v) => lower(v).includes("hant")) ??
+    cachedVoices.find((v) => lower(v).startsWith("zh"))
+  );
+}
+
 // 行動瀏覽器（尤其 iOS Safari）要求語音合成必須在使用者手勢中同步呼叫過一次
 // 才會「解鎖」，之後才能在計時器等非同步流程裡正常發聲。這裡在點擊當下用一句
-// 無聲的句子預先解鎖，讓轉盤停止後的 speakWinner() 呼叫不會被手機瀏覽器擋掉。
+// 無聲的句子預先解鎖，讓轉盤停止後的 speakWinner() 呼叫不會被手機瀏覽器擋掉，
+// 同時也順手催促瀏覽器盡快把語音清單載入好。
 function warmUpSpeech() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   try {
     const warmUp = new SpeechSynthesisUtterance(" ");
     warmUp.volume = 0;
     window.speechSynthesis.speak(warmUp);
+    refreshVoiceCache();
   } catch {
     // 不支援語音合成時，安靜地忽略。
   }
@@ -108,16 +136,24 @@ function warmUpSpeech() {
 function speakWinner(name: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(`恭喜抽到 ${name}`);
-    utterance.lang = "zh-TW";
-    utterance.rate = 0.95;
-    utterance.pitch = 1.15;
-    const zhVoice = window.speechSynthesis
-      .getVoices()
-      .find((v) => v.lang.toLowerCase().startsWith("zh"));
-    if (zhVoice) utterance.voice = zhVoice;
-    window.speechSynthesis.speak(utterance);
+    const synth = window.speechSynthesis;
+    const speakNow = () => {
+      const utterance = new SpeechSynthesisUtterance(`恭喜抽到 ${name}`);
+      utterance.lang = "zh-TW";
+      utterance.rate = 0.95;
+      const voice = pickZhVoice();
+      if (voice) utterance.voice = voice;
+      synth.speak(utterance);
+    };
+    // Chrome 系瀏覽器有個已知 bug：cancel() 之後「立刻」呼叫 speak()，新的句子
+    // 常常會被靜音吃掉一部分甚至整句（例如「水餃」只念出「水」）。只有真的有
+    // 東西在講話/排隊時才取消，取消後留一點時間再講新的句子。
+    if (synth.speaking || synth.pending) {
+      synth.cancel();
+      setTimeout(speakNow, 80);
+    } else {
+      speakNow();
+    }
   } catch {
     // 語音合成不可用時，安靜地忽略，不影響轉盤功能。
   }
@@ -252,11 +288,13 @@ export default function LotteryPage() {
   };
 
   useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    refreshVoiceCache();
+    window.speechSynthesis.addEventListener("voiceschanged", refreshVoiceCache);
     return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", refreshVoiceCache);
       tickTimeoutIdsRef.current.forEach(clearTimeout);
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      window.speechSynthesis.cancel();
     };
   }, []);
 
