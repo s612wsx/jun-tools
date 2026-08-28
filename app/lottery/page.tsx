@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PALETTE = [
   "#FFD1DC", // 粉紅
@@ -51,6 +51,64 @@ function makeConfetti(): ConfettiPiece[] {
   }));
 }
 
+const SPIN_DURATION_MS = 4400;
+const TICK_COUNT = 20;
+
+// 音效與語音：讓還不識字的孩子也能靠聲音知道結果。
+function playTick(ctx: AudioContext) {
+  const duration = 0.03;
+  const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * duration));
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+  }
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 2200;
+  const gain = ctx.createGain();
+  gain.gain.value = 0.18;
+  source.connect(filter).connect(gain).connect(ctx.destination);
+  source.start();
+}
+
+function playSuccessChime(ctx: AudioContext) {
+  const now = ctx.currentTime;
+  [523.25, 659.25, 783.99].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const start = now + i * 0.13;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.25, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.4);
+  });
+}
+
+function speakWinner(name: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(`恭喜抽到 ${name}`);
+    utterance.lang = "zh-TW";
+    utterance.rate = 0.95;
+    utterance.pitch = 1.15;
+    const zhVoice = window.speechSynthesis
+      .getVoices()
+      .find((v) => v.lang.toLowerCase().startsWith("zh"));
+    if (zhVoice) utterance.voice = zhVoice;
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // 語音合成不可用時，安靜地忽略，不影響轉盤功能。
+  }
+}
+
 export default function LotteryPage() {
   const [rawInput, setRawInput] = useState(DEFAULT_NAMES.join("\n"));
   const [removeAfterWin, setRemoveAfterWin] = useState(false);
@@ -58,9 +116,37 @@ export default function LotteryPage() {
   const [spinning, setSpinning] = useState(false);
   const [winner, setWinner] = useState<Winner | null>(null);
   const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
+  const [soundOn, setSoundOn] = useState(true);
 
   const winnerIndexRef = useRef<number | null>(null);
   const namesSnapshotRef = useRef<string[]>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const tickTimeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    return () => {
+      tickTimeoutIdsRef.current.forEach(clearTimeout);
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const ensureAudioContext = useCallback(() => {
+    if (audioCtxRef.current) {
+      if (audioCtxRef.current.state === "suspended") {
+        audioCtxRef.current.resume();
+      }
+      return audioCtxRef.current;
+    }
+    const Ctor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return null;
+    const ctx = new Ctor();
+    audioCtxRef.current = ctx;
+    return ctx;
+  }, []);
 
   const names = useMemo(
     () =>
@@ -99,16 +185,36 @@ export default function LotteryPage() {
     setWinner(null);
     setSpinning(true);
     setRotation((r) => r + delta);
-  }, [n, spinning, names, seg, rotation]);
+
+    if (soundOn) {
+      const ctx = ensureAudioContext();
+      if (ctx) {
+        tickTimeoutIdsRef.current.forEach(clearTimeout);
+        tickTimeoutIdsRef.current = Array.from({ length: TICK_COUNT }, (_, i) => {
+          const progress = i / (TICK_COUNT - 1);
+          const t = SPIN_DURATION_MS * progress * progress * 0.97;
+          return setTimeout(() => playTick(ctx), t);
+        });
+      }
+    }
+  }, [n, spinning, names, seg, rotation, soundOn, ensureAudioContext]);
 
   const handleTransitionEnd = () => {
     if (!spinning) return;
     setSpinning(false);
+    tickTimeoutIdsRef.current.forEach(clearTimeout);
+    tickTimeoutIdsRef.current = [];
     const idx = winnerIndexRef.current;
     const snapshot = namesSnapshotRef.current;
     if (idx !== null && snapshot[idx] !== undefined) {
-      setWinner({ name: snapshot[idx], index: idx });
+      const name = snapshot[idx];
+      setWinner({ name, index: idx });
       setConfetti(makeConfetti());
+      if (soundOn) {
+        const ctx = ensureAudioContext();
+        if (ctx) playSuccessChime(ctx);
+        setTimeout(() => speakWinner(name), 350);
+      }
       if (removeAfterWin) {
         const next = snapshot.filter((_, i) => i !== idx);
         setRawInput(next.join("\n"));
@@ -123,13 +229,21 @@ export default function LotteryPage() {
         className="grain-overlay pointer-events-none fixed inset-0 z-0 opacity-[0.05]"
       />
       <div className="relative z-10 mx-auto max-w-5xl">
-        <div className="mb-4">
+        <div className="mb-4 flex items-center justify-between">
           <Link
             href="/"
             className="inline-flex items-center gap-1 text-sm font-medium text-[#a8785e] hover:text-[#7a4a3a] transition"
           >
             ← 回首頁
           </Link>
+          <button
+            type="button"
+            onClick={() => setSoundOn((v) => !v)}
+            aria-pressed={soundOn}
+            className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1.5 text-sm font-semibold text-[#7a4a3a] shadow-sm transition hover:brightness-105"
+          >
+            {soundOn ? "🔊 音效開" : "🔇 音效關"}
+          </button>
         </div>
 
         <header className="mb-8 text-center">
