@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 const PALETTE = [
   "#FFD1DC", // 粉紅
@@ -123,8 +123,72 @@ function speakWinner(name: string) {
   }
 }
 
+type SavedList = { id: string; name: string; raw: string };
+type ListsState = { lists: SavedList[]; activeId: string | null };
+
+const LISTS_STORAGE_KEY = "jun-tools-lottery-lists";
+const DEFAULT_LISTS_STATE: ListsState = { lists: [], activeId: null };
+
+/**
+ * 儲存的名單清單放在 React state 之外，用 useSyncExternalStore 讀寫，
+ * 這樣第一次在伺服器端渲染時可以先用空清單（跟 client 端 hydrate 當下一致），
+ * 之後再從 localStorage 讀到實際內容時會自動觸發重新渲染，
+ * 不需要在 effect 裡直接呼叫 setState。
+ */
+let listsCache: ListsState | null = null;
+const listsListeners = new Set<() => void>();
+
+function readLists(): ListsState {
+  if (typeof window === "undefined") return DEFAULT_LISTS_STATE;
+  try {
+    const raw = window.localStorage.getItem(LISTS_STORAGE_KEY);
+    if (!raw) return DEFAULT_LISTS_STATE;
+    const parsed = JSON.parse(raw) as Partial<ListsState>;
+    if (!Array.isArray(parsed.lists)) return DEFAULT_LISTS_STATE;
+    return { lists: parsed.lists, activeId: parsed.activeId ?? null };
+  } catch {
+    return DEFAULT_LISTS_STATE;
+  }
+}
+
+function subscribeLists(listener: () => void) {
+  listsListeners.add(listener);
+  return () => listsListeners.delete(listener);
+}
+
+function getListsSnapshot(): ListsState {
+  if (listsCache === null) listsCache = readLists();
+  return listsCache;
+}
+
+function getServerListsSnapshot(): ListsState {
+  return DEFAULT_LISTS_STATE;
+}
+
+function writeLists(next: ListsState) {
+  listsCache = next;
+  try {
+    window.localStorage.setItem(LISTS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // 忽略寫入失敗（例如私密瀏覽模式）。
+  }
+  listsListeners.forEach((listener) => listener());
+}
+
+function makeListId() {
+  return `list-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export default function LotteryPage() {
-  const [rawInput, setRawInput] = useState(DEFAULT_NAMES.join("\n"));
+  const { lists, activeId } = useSyncExternalStore(
+    subscribeLists,
+    getListsSnapshot,
+    getServerListsSnapshot,
+  );
+
+  const [rawOverride, setRawOverride] = useState<string | null>(null);
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [newListName, setNewListName] = useState("");
   const [removeAfterWin, setRemoveAfterWin] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -136,6 +200,56 @@ export default function LotteryPage() {
   const namesSnapshotRef = useRef<string[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const tickTimeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const activeList = lists.find((l) => l.id === activeId) ?? null;
+  const rawInput = rawOverride ?? (activeList ? activeList.raw : DEFAULT_NAMES.join("\n"));
+  const hasUnsavedChanges = activeList !== null && rawInput !== activeList.raw;
+
+  const loadList = (list: SavedList) => {
+    if (spinning) return;
+    setRawOverride(null);
+    writeLists({ lists, activeId: list.id });
+  };
+
+  const deleteList = (id: string) => {
+    const target = lists.find((l) => l.id === id);
+    if (!target) return;
+    if (!window.confirm(`確定要刪除「${target.name}」這份清單嗎？`)) return;
+    if (activeId === id) setRawOverride(null);
+    writeLists({
+      lists: lists.filter((l) => l.id !== id),
+      activeId: activeId === id ? null : activeId,
+    });
+  };
+
+  const saveAsNewList = () => {
+    const name = newListName.trim();
+    if (!name) return;
+    const newList: SavedList = { id: makeListId(), name, raw: rawInput };
+    writeLists({ lists: [...lists, newList], activeId: newList.id });
+    setRawOverride(null);
+    setNewListName("");
+    setShowSaveForm(false);
+  };
+
+  const updateActiveList = () => {
+    if (!activeList) return;
+    writeLists({
+      lists: lists.map((l) => (l.id === activeList.id ? { ...l, raw: rawInput } : l)),
+      activeId: activeList.id,
+    });
+    setRawOverride(null);
+  };
+
+  const restoreExample = () => {
+    setRawOverride(null);
+    writeLists({ lists, activeId: null });
+  };
+
+  const clearAll = () => {
+    setRawOverride("");
+    writeLists({ lists, activeId: null });
+  };
 
   useEffect(() => {
     return () => {
@@ -179,7 +293,7 @@ export default function LotteryPage() {
 
   const removeNameAt = (index: number) => {
     const next = names.filter((_, i) => i !== index);
-    setRawInput(next.join("\n"));
+    setRawOverride(next.join("\n"));
   };
 
   const spin = useCallback(() => {
@@ -233,7 +347,7 @@ export default function LotteryPage() {
       }
       if (removeAfterWin) {
         const next = snapshot.filter((_, i) => i !== idx);
-        setRawInput(next.join("\n"));
+        setRawOverride(next.join("\n"));
       }
     }
   };
@@ -272,12 +386,84 @@ export default function LotteryPage() {
         <div className="grid items-start gap-8 lg:grid-cols-[340px_1fr]">
           {/* 名單輸入區 */}
           <section className="rounded-3xl border border-white bg-white/80 p-6 shadow-[0_10px_30px_rgba(190,150,120,0.15)] backdrop-blur">
+            {/* 我的清單 */}
+            <div className="mb-5">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-bold text-[#7a4a3a]">📋 我的清單</span>
+                <button
+                  type="button"
+                  disabled={spinning}
+                  onClick={() => setShowSaveForm((v) => !v)}
+                  className="rounded-full bg-[#D3F3E4] px-3 py-1 text-xs font-semibold text-[#2f6b52] transition hover:brightness-105 disabled:opacity-60"
+                >
+                  ➕ 新增清單
+                </button>
+              </div>
+
+              {showSaveForm && (
+                <div className="mb-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={newListName}
+                    onChange={(e) => setNewListName(e.target.value)}
+                    placeholder="清單名稱，例如：午餐吃什麼"
+                    className="min-w-0 flex-1 rounded-full border-2 border-[#FFE1EC] bg-[#FFFBF6] px-3 py-1.5 text-sm text-[#5b4636] placeholder:text-[#c9ab9a] outline-none focus:border-[#FFB3C6]"
+                  />
+                  <button
+                    type="button"
+                    disabled={!newListName.trim()}
+                    onClick={saveAsNewList}
+                    className="shrink-0 rounded-full bg-[#FFD3E0] px-3 py-1.5 text-sm font-semibold text-[#7a4a3a] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    儲存
+                  </button>
+                </div>
+              )}
+
+              {lists.length === 0 ? (
+                <p className="text-xs text-[#c9ab9a]">
+                  還沒有儲存的清單，輸入名單後按「新增清單」建立第一份吧！
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {lists.map((list) => (
+                    <span
+                      key={list.id}
+                      className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-semibold shadow-sm transition ${
+                        list.id === activeId
+                          ? "bg-[#FFB3C6] text-white"
+                          : "bg-[#FFE1EC] text-[#7a4a3a] hover:brightness-105"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        disabled={spinning}
+                        onClick={() => loadList(list)}
+                        className="disabled:opacity-60"
+                      >
+                        {list.name}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={spinning}
+                        onClick={() => deleteList(list.id)}
+                        aria-label={`刪除 ${list.name}`}
+                        className="grid h-4 w-4 place-items-center rounded-full bg-white/60 text-[10px] leading-none text-[#5b4636] transition hover:bg-white disabled:opacity-60"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <label className="mb-2 block text-sm font-bold text-[#7a4a3a]">
               本次名單（一行一位，或用逗號分隔）
             </label>
             <textarea
               value={rawInput}
-              onChange={(e) => setRawInput(e.target.value)}
+              onChange={(e) => setRawOverride(e.target.value)}
               disabled={spinning}
               rows={6}
               placeholder={"小明\n小華\n小美"}
@@ -286,11 +472,21 @@ export default function LotteryPage() {
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-medium text-[#a8785e]">共 {n} 位</span>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                {hasUnsavedChanges && (
+                  <button
+                    type="button"
+                    disabled={spinning}
+                    onClick={updateActiveList}
+                    className="rounded-full bg-[#FFE9A8] px-3 py-1 text-xs font-semibold text-[#8a5a12] transition hover:brightness-105 disabled:opacity-60"
+                  >
+                    💾 更新「{activeList?.name}」
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={spinning}
-                  onClick={() => setRawInput(DEFAULT_NAMES.join("\n"))}
+                  onClick={restoreExample}
                   className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-semibold text-[#7a5aa8] transition hover:brightness-105 disabled:opacity-60"
                 >
                   還原範例
@@ -298,7 +494,7 @@ export default function LotteryPage() {
                 <button
                   type="button"
                   disabled={spinning}
-                  onClick={() => setRawInput("")}
+                  onClick={clearAll}
                   className="rounded-full bg-[#FFE1E1] px-3 py-1 text-xs font-semibold text-[#c9635f] transition hover:brightness-105 disabled:opacity-60"
                 >
                   清空
