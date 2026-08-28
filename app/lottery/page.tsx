@@ -407,7 +407,7 @@ export default function LotteryPage() {
                     value={newListName}
                     onChange={(e) => setNewListName(e.target.value)}
                     placeholder="清單名稱，例如：午餐吃什麼"
-                    className="min-w-0 flex-1 rounded-full border-2 border-[#FFE1EC] bg-[#FFFBF6] px-3 py-1.5 text-sm text-[#5b4636] placeholder:text-[#c9ab9a] outline-none focus:border-[#FFB3C6]"
+                    className="min-w-0 flex-1 rounded-full border-2 border-[#FFE1EC] bg-[#FFFBF6] px-3 py-1.5 text-base text-[#5b4636] placeholder:text-[#c9ab9a] outline-none focus:border-[#FFB3C6]"
                   />
                   <button
                     type="button"

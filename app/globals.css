@@ -25,6 +25,25 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* iOS WebKit (Safari, and in-app browsers like LINE's that embed it) zooms
+   the whole page in when a text input/textarea with font-size under 16px
+   receives focus, so the text is legible while typing — then doesn't
+   always reliably zoom back out afterwards, especially in embedded
+   WebViews. Forcing 16px on small screens avoids triggering that zoom in
+   the first place, without disabling the user's own pinch-zoom. */
+@media (max-width: 767px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="search"],
+  input[type="url"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* Soft mesh-gradient background: layered, blurred color pools over a warm
    cream base, kept to one tonal family (blush / peach / cream) so it reads
    as a single cozy palette instead of a multi-hue rainbow, plus a faint
