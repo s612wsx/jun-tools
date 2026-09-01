@@ -117,6 +117,24 @@ function pickZhVoice(): SpeechSynthesisVoice | undefined {
   );
 }
 
+// 朋友是奧地利人，輸入德文名字時如果還用中文語音去念，發音會整個跑掉。
+// 優先挑奧地利德語（de-AT），沒有再退回標準德語（de-DE）或任何德語語音。
+function pickDeVoice(): SpeechSynthesisVoice | undefined {
+  refreshVoiceCache();
+  const lower = (v: SpeechSynthesisVoice) => v.lang.toLowerCase();
+  return (
+    cachedVoices.find((v) => lower(v) === "de-at") ??
+    cachedVoices.find((v) => lower(v) === "de-de") ??
+    cachedVoices.find((v) => lower(v).startsWith("de"))
+  );
+}
+
+// 用名字裡有沒有中日韓漢字，來決定要用中文還是德文語音報獎。
+// 名單可以中德混填，逐一判斷每個中獎者即可。
+function hasChinese(text: string) {
+  return /[㐀-鿿豈-﫿]/.test(text);
+}
+
 // 行動瀏覽器（尤其 iOS Safari）要求語音合成必須在使用者手勢中同步呼叫過一次
 // 才會「解鎖」，之後才能在計時器等非同步流程裡正常發聲。這裡在點擊當下用一句
 // 無聲的句子預先解鎖，讓轉盤停止後的 speakWinner() 呼叫不會被手機瀏覽器擋掉，
@@ -137,11 +155,13 @@ function speakWinner(name: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   try {
     const synth = window.speechSynthesis;
+    const isZh = hasChinese(name);
     const speakNow = () => {
-      const utterance = new SpeechSynthesisUtterance(`恭喜抽到 ${name}`);
-      utterance.lang = "zh-TW";
+      const text = isZh ? `恭喜抽到 ${name}` : `Herzlichen Glückwunsch! ${name}`;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = isZh ? "zh-TW" : "de-AT";
       utterance.rate = 0.95;
-      const voice = pickZhVoice();
+      const voice = isZh ? pickZhVoice() : pickDeVoice();
       if (voice) utterance.voice = voice;
       synth.speak(utterance);
     };
